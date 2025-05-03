@@ -22,34 +22,11 @@ FotobookNFT, envisioned by Erik Smit, is designed to put creators first. Whether
 - **Social Vibes**: Share your NFTs on Farcaster to reach a growing art community.
 - **Secure & Trustworthy**: Built with robust security to protect your creations.
 
-## Get Started
-
-1. **Discover FotobookNFT**:
-   - Check out our upcoming Farcaster mini-app to start minting and curating NFTs.
-   - Watch for our full website and X integration coming in 2025!
-
-2. **Join the Community**:
-   - Follow us on [Farcaster](https://farcaster.com) to stay updated and meet other creators.
-   - Join our [Discord](https://discord.com) (coming soon) to share ideas and connect.
-
-3. **Set Up Your Wallet**:
-   - Use MetaMask or Coinbase Wallet to interact with FotobookNFT on the Base network.
-   - Grab some testnet ETH for Base Sepolia to try it out.
-
-## What's Next?
-
-We’re building the future of digital art with you! Our roadmap includes:
-
-- **Q2 2025**: Launch Farcaster mini-app for minting and galleries.
-- **Q3 2025**: Roll out a standalone website and X integration.
-- **Q4 2025**: Add fun community features like leaderboards and creator badges.
-- **2026**: Partner with Coinbase Wallet to make FotobookNFT accessible to everyone.
-
 ## Contribute
 
 Love FotobookNFT? Help us make it better! Whether you’re an artist, collector, or fan, you can:
 
-- Share feedback or feature ideas via [GitHub Issues](https://github.com/your-username/fotobook-nft/issues).
+- Share feedback or feature ideas via [GitHub Issues](https://github.com/genyleap/fotobook-nft/issues).
 - Join our Farcaster community to shape the platform’s future.
 
 ## License
@@ -58,7 +35,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Acknowledgments
 
-FotobookNFT was conceived by **Erik Smit**, whose vision for a creator-centric, community-driven platform inspires this project.
+FotobookNFT was envisioned by Erik Smit, whose commitment to a creator-centric and community-driven platform laid the foundation for this project, which has been developed by compez.eth.
 
 ## Connect with Us
 
