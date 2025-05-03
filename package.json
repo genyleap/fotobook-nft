@@ -1,0 +1,37 @@
+{
+  "name": "fotobook-nft",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "preinstall": "npx npm-force-resolutions",
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.js",
+    "verify": "hardhat verify",
+    "clean": "hardhat clean",
+    "console": "hardhat console"
+  },
+  "keywords": ["nft", "blockchain", "solidity", "ethereum", "manifold"],
+  "author": "Your Name",
+  "license": "MIT",
+  "description": "FotobookNFT: An ERC721-based NFT contract with auction functionality using Manifold's ERC721Creator",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.3",
+    "hardhat": "^2.23.0",
+    "ethers": "^6.0.0",
+    "mocha": "^10.7.3",
+    "chai": "^4.5.0",
+    "dotenv": "^16.4.5",
+    "npm-force-resolutions": "^0.0.10"
+  },
+  "dependencies": {
+    "@manifoldxyz/creator-core-solidity": "^3.0.0",
+    "@manifoldxyz/libraries-solidity": "^1.0.3",
+    "@openzeppelin/contracts": "^4.9.3"
+  },
+  "resolutions": {
+    "glob": "^11.0.0",
+    "@openzeppelin/contracts": "4.9.3"
+  }
+}
