@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./FotobookNFT.sol";
+import "./FotobookMarketplace.sol";
 
-/// @title FotobookExchange - Upgradeable helper contract for auctions and offers
+/// @title FotobookAuction - Upgradeable helper contract for auctions and offers
 /// @notice Manages auctions, offers, and ERC20 tokens for FotobookNFT
 /// @dev Interacts with FotobookNFT, uses OpenZeppelin upgradeable proxy
 /// @author compez.eth
 /// @custom:security-contact security@genyleap.com
-contract FotobookExchange is Initializable, OwnableUpgradeable {
+contract FotobookAuction is Initializable, OwnableUpgradeable {
     bool private _locked;
     FotobookNFT private _nftContract;
+    FotobookMarketplace private _marketplaceContract;
 
     modifier noReentrancy() {
         require(!_locked, "ReentrancyGuard: reentrant call");
@@ -41,6 +43,7 @@ contract FotobookExchange is Initializable, OwnableUpgradeable {
     event AuctionStarted(uint256 indexed tokenId, address currency, uint256 minBid);
     event BidPlaced(uint256 indexed tokenId, address indexed bidder, uint256 amount);
     event AuctionEnded(uint256 indexed tokenId, address indexed winner, uint256 amount);
+    event AuctionCancelled(uint256 indexed tokenId);
     event OfferPlaced(uint256 indexed tokenId, address indexed offerer, address currency, uint256 amount);
     event OfferAccepted(uint256 indexed tokenId, address indexed offerer, address currency, uint256 amount);
     event TokenAdded(address indexed token);
@@ -51,10 +54,11 @@ contract FotobookExchange is Initializable, OwnableUpgradeable {
     }
 
     /// @notice Initializes the contract
-    function initialize(address nftContract) external initializer {
-        require(nftContract != address(0), "Invalid NFT contract address");
+    function initialize(address nftContract, address marketplaceContract) external initializer {
+        require(nftContract != address(0) && marketplaceContract != address(0), "Invalid contract address");
         __Ownable_init();
         _nftContract = FotobookNFT(nftContract);
+        _marketplaceContract = FotobookMarketplace(marketplaceContract);
     }
 
     /// @notice Adds an ERC20 token to the allowed list
@@ -89,6 +93,7 @@ contract FotobookExchange is Initializable, OwnableUpgradeable {
             active: true
         });
 
+        _marketplaceContract.indexAuction(tokenId);
         emit AuctionStarted(tokenId, currency, minBid);
     }
 
@@ -144,6 +149,7 @@ contract FotobookExchange is Initializable, OwnableUpgradeable {
         }
 
         auction.active = false;
+        _marketplaceContract.removeAuction(tokenId);
 
         if (auction.highestBidder != address(0)) {
             _nftContract.transferFrom(auction.seller, auction.highestBidder, tokenId);
@@ -157,6 +163,21 @@ contract FotobookExchange is Initializable, OwnableUpgradeable {
         } else {
             emit AuctionEnded(tokenId, address(0), 0);
         }
+    }
+
+    /// @notice Cancels an active auction
+    function cancelAuction(uint256 tokenId) external noReentrancy {
+        Auction storage auction = auctions[tokenId];
+        require(auction.active, "Auction not active");
+        require(auction.seller == msg.sender, "Not seller");
+
+        if (auction.highestBidder != address(0)) {
+            pendingWithdrawals[auction.highestBidder][auction.currency] += auction.highestBid;
+        }
+
+        auction.active = false;
+        _marketplaceContract.removeAuction(tokenId);
+        emit AuctionCancelled(tokenId);
     }
 
     /// @notice Places an offer for an NFT
@@ -195,5 +216,15 @@ contract FotobookExchange is Initializable, OwnableUpgradeable {
         }
 
         emit OfferAccepted(tokenId, offerer, currency, offerAmount);
+    }
+
+    /// @notice Checks if an auction is active
+    function isAuctionActive(uint256 tokenId) external view returns (bool) {
+        return auctions[tokenId].active;
+    }
+
+    /// @notice Gets the end time of an auction
+    function getAuctionEndTime(uint256 tokenId) external view returns (uint256) {
+        return auctions[tokenId].endTime;
     }
 }

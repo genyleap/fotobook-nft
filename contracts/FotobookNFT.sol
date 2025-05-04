@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity ^0.8.0;
 
 import "@manifoldxyz/creator-core-solidity/contracts/ERC721Creator.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
 /// @title FotobookNFT - A platform for minting, managing, and auctioning unique NFTs
-/// @notice This contract allows users to mint 1/1 NFTs, set visibility, auction tokens, and place offers
+/// @notice This contract allows users to mint 1/1 NFTs, set visibility, auction tokens, and place offers and etc.
 /// @dev Extends ERC721Creator from Manifold, deployed on Base network
 /// @author compez.eth
 /// @custom:security-contact security@genyleap.com
@@ -21,7 +21,7 @@ contract FotobookNFT is ERC721Creator {
     mapping(uint256 => string) public tokenURIs;
     mapping(uint256 => TokenVisibility) public tokenVisibilities;
 
-    event NFTMinted(uint256 indexed tokenId, address indexed recipient);
+    event NFTMinted(uint256 indexed tokenId, address indexed recipient, string tokenURI, bool isPublic);
     event VisibilityUpdated(uint256 indexed tokenId, bool isPublic);
 
     constructor() ERC721Creator("Fotobook", "FOTO") {}
@@ -37,7 +37,7 @@ contract FotobookNFT is ERC721Creator {
 
         tokenURIs[newTokenId] = tokenURI;
         tokenVisibilities[newTokenId].isPublic = isPublic;
-        emit NFTMinted(newTokenId, recipient);
+        emit NFTMinted(newTokenId, recipient, tokenURI, isPublic);
 
         return newTokenId;
     }
@@ -52,5 +52,10 @@ contract FotobookNFT is ERC721Creator {
     /// @notice Checks if an NFT is publicly visible
     function isTokenPublic(uint256 tokenId) external view returns (bool) {
         return tokenVisibilities[tokenId].isPublic;
+    }
+
+    /// @notice Returns the total number of minted NFTs
+    function totalSupply() external view returns (uint256) {
+        return _tokenIds.current();
     }
 }

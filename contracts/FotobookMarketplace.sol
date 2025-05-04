@@ -1,50 +1,43 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./FotobookNFT.sol";
+import "./FotobookAuction.sol";
 
-/// @title FotobookExchange - Upgradeable helper contract for auctions and offers
-/// @notice Manages auctions, offers, and ERC20 tokens for FotobookNFT
-/// @dev Interacts with FotobookNFT, uses OpenZeppelin upgradeable proxy
+/// @title FotobookMarketplace - Helper contract for indexing and filtering NFTs
+/// @notice Manages metadata indexing and provides filtering for marketplace
+/// @dev Interacts with FotobookNFT and FotobookAuction, uses OpenZeppelin upgradeable proxy
 /// @author compez.eth
 /// @custom:security-contact security@genyleap.com
-contract FotobookExchange is Initializable, OwnableUpgradeable {
-    bool private _locked;
+contract FotobookMarketplace is Initializable, OwnableUpgradeable {
     FotobookNFT private _nftContract;
+    FotobookAuction private _auctionContract;
 
-    modifier noReentrancy() {
-        require(!_locked, "ReentrancyGuard: reentrant call");
-        _locked = true;
-        _;
-        _locked = false;
-    }
-
-    struct Auction {
-        address seller;
+    // Structure for NFT metadata
+    struct NFTMetadata {
         uint256 tokenId;
-        address currency;
-        uint256 minBid;
-        uint256 endTime;
-        address highestBidder;
-        uint256 highestBid;
-        bool active;
+        string[] tags; // e.g., ["landscape", "photography"]
+        string category; // e.g., "photo", "art", "video"
+        bool isPublic; // Synced with FotobookNFT visibility
     }
 
-    mapping(uint256 => Auction) public auctions;
-    mapping(address => mapping(address => uint256)) public pendingWithdrawals;
-    mapping(uint256 => mapping(address => mapping(address => uint256))) public tokenOffers;
-    mapping(address => bool) public allowedTokens;
+    // Mapping for NFT metadata
+    mapping(uint256 => NFTMetadata) public nftMetadata;
+    // Array of all public NFT token IDs
+    uint256[] public publicNFTs;
+    // Mapping to track if tokenId is in publicNFTs
+    mapping(uint256 => bool) public isPublicNFT;
+    // Array of active auction token IDs
+    uint256[] public activeAuctions;
+    // Mapping to track if tokenId is in activeAuctions
+    mapping(uint256 => bool) public isActiveAuction;
 
-    event AuctionStarted(uint256 indexed tokenId, address currency, uint256 minBid);
-    event BidPlaced(uint256 indexed tokenId, address indexed bidder, uint256 amount);
-    event AuctionEnded(uint256 indexed tokenId, address indexed winner, uint256 amount);
-    event AuctionCancelled(uint256 indexed tokenId);
-    event OfferPlaced(uint256 indexed tokenId, address indexed offerer, address currency, uint256 amount);
-    event OfferAccepted(uint256 indexed tokenId, address indexed offerer, address currency, uint256 amount);
-    event TokenAdded(address indexed token);
+    event MetadataUpdated(uint256 indexed tokenId, string[] tags, string category);
+    event NFTPublicStatusChanged(uint256 indexed tokenId, bool isPublic);
+    event AuctionIndexed(uint256 indexed tokenId);
+    event AuctionRemoved(uint256 indexed tokenId);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -52,163 +45,146 @@ contract FotobookExchange is Initializable, OwnableUpgradeable {
     }
 
     /// @notice Initializes the contract
-    function initialize(address nftContract) external initializer {
+    function initialize(address nftContract, address auctionContract) external initializer {
         require(nftContract != address(0), "Invalid NFT contract address");
         __Ownable_init();
         _nftContract = FotobookNFT(nftContract);
+        _auctionContract = FotobookAuction(auctionContract); // Works with zero address
     }
 
-    /// @notice Adds an ERC20 token to the allowed list
-    function addToken(address token) external onlyOwner {
-        require(token != address(0) && !allowedTokens[token], "Invalid token");
-        allowedTokens[token] = true;
-        emit TokenAdded(token);
+    /// @notice Updates the auction contract address (optional for later initialization)
+    function updateAuctionContract(address auctionContract) external onlyOwner {
+        _auctionContract = FotobookAuction(auctionContract);
     }
 
-    /// @notice Removes an ERC20 token from the allowed list
-    function removeToken(address token) external onlyOwner {
-        require(allowedTokens[token], "Token not allowed");
-        allowedTokens[token] = false;
-    }
-
-    /// @notice Starts an auction for an NFT
-    function startAuction(uint256 tokenId, address currency, uint256 minBid, uint256 duration) external noReentrancy {
+    /// @notice Updates metadata for an NFT
+    function updateMetadata(uint256 tokenId, string[] memory tags, string memory category) external {
         require(_nftContract.ownerOf(tokenId) == msg.sender, "Not token owner");
-        require(!auctions[tokenId].active, "Auction already active");
-        require(minBid > 0, "Minimum bid must be greater than 0");
-        require(duration >= 1 hours && duration <= 30 days, "Invalid duration");
-        require(currency == address(0) || allowedTokens[currency], "Currency not allowed");
+        require(bytes(category).length > 0, "Category cannot be empty");
 
-        auctions[tokenId] = Auction({
-            seller: msg.sender,
+        nftMetadata[tokenId] = NFTMetadata({
             tokenId: tokenId,
-            currency: currency,
-            minBid: minBid,
-            endTime: block.timestamp + duration,
-            highestBidder: address(0),
-            highestBid: 0,
-            active: true
+            tags: tags,
+            category: category,
+            isPublic: _nftContract.isTokenPublic(tokenId)
         });
 
-        emit AuctionStarted(tokenId, currency, minBid);
+        emit MetadataUpdated(tokenId, tags, category);
     }
 
-    /// @notice Places a bid in an active auction
-    function placeBid(uint256 tokenId, uint256 amount) external payable noReentrancy {
-        Auction storage auction = auctions[tokenId];
-        require(auction.active, "Auction not active");
-        require(block.timestamp < auction.endTime, "Auction ended");
-        require(amount > auction.highestBid && amount >= auction.minBid, "Bid too low");
-
-        if (auction.currency == address(0)) {
-            require(msg.value == amount, "Incorrect ETH amount");
-        } else {
-            require(msg.value == 0, "ETH not allowed");
-            IERC20(auction.currency).transferFrom(msg.sender, address(this), amount);
-        }
-
-        if (auction.highestBidder != address(0)) {
-            pendingWithdrawals[auction.highestBidder][auction.currency] += auction.highestBid;
-        }
-
-        auction.highestBidder = msg.sender;
-        auction.highestBid = amount;
-
-        emit BidPlaced(tokenId, msg.sender, amount);
-    }
-
-    /// @notice Withdraws pending bid refunds
-    function withdraw(address currency) external noReentrancy {
-        uint256 amount = pendingWithdrawals[msg.sender][currency];
-        require(amount > 0, "No funds to withdraw");
-
-        pendingWithdrawals[msg.sender][currency] = 0;
-
-        if (currency == address(0)) {
-            (bool success, ) = payable(msg.sender).call{value: amount}("");
-            require(success, "ETH transfer failed");
-        } else {
-            IERC20(currency).transfer(msg.sender, amount);
-        }
-    }
-
-    /// @notice Ends an auction and transfers the NFT
-    function endAuction(uint256 tokenId) external noReentrancy {
-        Auction storage auction = auctions[tokenId];
-        require(auction.active, "Auction not active");
-        require(block.timestamp >= auction.endTime, "Auction not ended");
-        require(auction.seller == msg.sender, "Not seller");
-
-        if (auction.highestBidder != address(0)) {
-            address approved = _nftContract.getApproved(tokenId);
-            require(approved == address(this), "Auction contract not approved for transfer");
-        }
-
-        auction.active = false;
-
-        if (auction.highestBidder != address(0)) {
-            _nftContract.transferFrom(auction.seller, auction.highestBidder, tokenId);
-            if (auction.currency == address(0)) {
-                (bool success, ) = payable(auction.seller).call{value: auction.highestBid}("");
-                require(success, "ETH transfer failed");
-            } else {
-                IERC20(auction.currency).transfer(auction.seller, auction.highestBid);
+    /// @notice Syncs public status with FotobookNFT
+    function syncPublicStatus(uint256 tokenId) external {
+        bool isPublic = _nftContract.isTokenPublic(tokenId);
+        if (isPublic && !isPublicNFT[tokenId]) {
+            publicNFTs.push(tokenId);
+            isPublicNFT[tokenId] = true;
+        } else if (!isPublic && isPublicNFT[tokenId]) {
+            for (uint256 i = 0; i < publicNFTs.length; i++) {
+                if (publicNFTs[i] == tokenId) {
+                    publicNFTs[i] = publicNFTs[publicNFTs.length - 1];
+                    publicNFTs.pop();
+                    break;
+                }
             }
-            emit AuctionEnded(tokenId, auction.highestBidder, auction.highestBid);
-        } else {
-            emit AuctionEnded(tokenId, address(0), 0);
+            isPublicNFT[tokenId] = false;
+        }
+        emit NFTPublicStatusChanged(tokenId, isPublic);
+    }
+
+    /// @notice Indexes an auction when it starts
+    function indexAuction(uint256 tokenId) external {
+        require(msg.sender == address(_auctionContract), "Only auction contract");
+        if (!isActiveAuction[tokenId]) {
+            activeAuctions.push(tokenId);
+            isActiveAuction[tokenId] = true;
+            emit AuctionIndexed(tokenId);
         }
     }
 
-    /// @notice Cancels an active auction
-    function cancelAuction(uint256 tokenId) external noReentrancy {
-        Auction storage auction = auctions[tokenId];
-        require(auction.active, "Auction not active");
-        require(auction.seller == msg.sender, "Not seller");
-
-        if (auction.highestBidder != address(0)) {
-            pendingWithdrawals[auction.highestBidder][auction.currency] += auction.highestBid;
+    /// @notice Removes an auction when it ends or is cancelled
+    function removeAuction(uint256 tokenId) external {
+        require(msg.sender == address(_auctionContract), "Only auction contract");
+        if (isActiveAuction[tokenId]) {
+            for (uint256 i = 0; i < activeAuctions.length; i++) {
+                if (activeAuctions[i] == tokenId) {
+                    activeAuctions[i] = activeAuctions[activeAuctions.length - 1];
+                    activeAuctions.pop();
+                    break;
+                }
+            }
+            isActiveAuction[tokenId] = false;
+            emit AuctionRemoved(tokenId);
         }
-
-        auction.active = false;
-        emit AuctionCancelled(tokenId);
     }
 
-    /// @notice Places an offer for an NFT
-    function placeOffer(uint256 tokenId, address currency, uint256 amount) external payable noReentrancy {
-        require(currency == address(0) || allowedTokens[currency], "Currency not allowed");
-        require(amount > tokenOffers[tokenId][msg.sender][currency], "Offer must be higher");
-
-        if (currency == address(0)) {
-            require(msg.value == amount, "Incorrect ETH amount");
-        } else {
-            require(msg.value == 0, "ETH not allowed");
-            IERC20(currency).transferFrom(msg.sender, address(this), amount);
-        }
-
-        tokenOffers[tokenId][msg.sender][currency] = amount;
-        emit OfferPlaced(tokenId, msg.sender, currency, amount);
+    /// @notice Gets all public NFTs
+    function getPublicNFTs() external view returns (uint256[] memory) {
+        return publicNFTs;
     }
 
-    /// @notice Accepts an offer for an NFT
-    function acceptOffer(uint256 tokenId, address offerer, address currency) external noReentrancy {
-        require(_nftContract.ownerOf(tokenId) == msg.sender, "Not token owner");
-        uint256 offerAmount = tokenOffers[tokenId][offerer][currency];
-        require(offerAmount > 0, "No offer exists");
-
-        address approved = _nftContract.getApproved(tokenId);
-        require(approved == address(this), "Auction contract not approved for transfer");
-
-        tokenOffers[tokenId][offerer][currency] = 0;
-        _nftContract.transferFrom(msg.sender, offerer, tokenId);
-
-        if (currency == address(0)) {
-            (bool success, ) = payable(msg.sender).call{value: offerAmount}("");
-            require(success, "ETH transfer failed");
-        } else {
-            IERC20(currency).transfer(msg.sender, offerAmount);
+    /// @notice Filters NFTs by category
+    function filterByCategory(string memory category) external view returns (uint256[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < publicNFTs.length; i++) {
+            if (keccak256(abi.encodePacked(nftMetadata[publicNFTs[i]].category)) == keccak256(abi.encodePacked(category))) {
+                count++;
+            }
         }
 
-        emit OfferAccepted(tokenId, offerer, currency, offerAmount);
+        uint256[] memory result = new uint256[](count);
+        uint256 index = 0;
+        for (uint256 i = 0; i < publicNFTs.length; i++) {
+            if (keccak256(abi.encodePacked(nftMetadata[publicNFTs[i]].category)) == keccak256(abi.encodePacked(category))) {
+                result[index] = publicNFTs[i];
+                index++;
+            }
+        }
+        return result;
+    }
+
+    /// @notice Filters NFTs by tag
+    function filterByTag(string memory tag) external view returns (uint256[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < publicNFTs.length; i++) {
+            for (uint256 j = 0; j < nftMetadata[publicNFTs[i]].tags.length; j++) {
+                if (keccak256(abi.encodePacked(nftMetadata[publicNFTs[i]].tags[j])) == keccak256(abi.encodePacked(tag))) {
+                    count++;
+                    break;
+                }
+            }
+        }
+
+        uint256[] memory result = new uint256[](count);
+        uint256 index = 0;
+        for (uint256 i = 0; i < publicNFTs.length; i++) {
+            for (uint256 j = 0; j < nftMetadata[publicNFTs[i]].tags.length; j++) {
+                if (keccak256(abi.encodePacked(nftMetadata[publicNFTs[i]].tags[j])) == keccak256(abi.encodePacked(tag))) {
+                    result[index] = publicNFTs[i];
+                    index++;
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+
+    /// @notice Gets active auctions
+    function getActiveAuctions() external view returns (uint256[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < activeAuctions.length; i++) {
+            if (_auctionContract.isAuctionActive(activeAuctions[i]) && block.timestamp < _auctionContract.getAuctionEndTime(activeAuctions[i])) {
+                count++;
+            }
+        }
+
+        uint256[] memory result = new uint256[](count);
+        uint256 index = 0;
+        for (uint256 i = 0; i < activeAuctions.length; i++) {
+            if (_auctionContract.isAuctionActive(activeAuctions[i]) && block.timestamp < _auctionContract.getAuctionEndTime(activeAuctions[i])) {
+                result[index] = activeAuctions[i];
+                index++;
+            }
+        }
+        return result;
     }
 }
